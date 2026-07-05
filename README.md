@@ -177,8 +177,8 @@ payroll-system/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/omowaye/payroll-system.git
-cd payroll-system
+git clone https://github.com/omowaye/payroll-management-system-.git
+cd payroll-management-system-
 ```
 
 2. **Update passwords** in `payroll_db.sql` before running (search for `Change_Me_`):
