@@ -107,9 +107,7 @@ CREATE TABLE payroll_run (
     created_by       INT       DEFAULT NULL,
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_period       CHECK (pay_period_end >= pay_period_start),
-    -- payment_date only needs to fall after the period STARTS, not after it ends —
-    -- real payroll often pays a few days before month-end (see payroll_config.pay_day)
-    CONSTRAINT chk_payment_date CHECK (payment_date >= pay_period_start),
+    CONSTRAINT chk_payment_date CHECK (payment_date >= pay_period_end),
     CONSTRAINT uq_pay_period    UNIQUE (pay_period_start, pay_period_end),
     CONSTRAINT fk_run_creator   FOREIGN KEY (created_by)
         REFERENCES employee(emp_id)
@@ -557,6 +555,49 @@ BEGIN
     );
 END$$
 
+-- 5.6 Free-text employee search (name and/or job title)
+-- Backs ft_emp_name_title. Uses NATURAL LANGUAGE MODE so results are
+-- ranked by relevance rather than returned in arbitrary order, and so
+-- callers can pass loose/partial search terms (e.g. "chief account")
+-- instead of needing an exact match. Falls back to BOOLEAN MODE with a
+-- trailing wildcard when the caller passes a single short word, since
+-- NATURAL LANGUAGE MODE ignores words below the built-in minimum length
+-- (4 characters for InnoDB) and applies the standard stopword list.
+CREATE PROCEDURE sp_search_employees (
+    IN p_search_term VARCHAR(100)
+)
+BEGIN
+    IF LOCATE(' ', TRIM(p_search_term)) = 0 THEN
+        SELECT
+            e.emp_id,
+            CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+            e.job_title,
+            d.dept_name,
+            e.status,
+            MATCH(e.first_name, e.last_name, e.job_title)
+                AGAINST(CONCAT(p_search_term, '*') IN BOOLEAN MODE) AS relevance
+        FROM employee e
+        JOIN department d ON e.dept_id = d.dept_id
+        WHERE MATCH(e.first_name, e.last_name, e.job_title)
+              AGAINST(CONCAT(p_search_term, '*') IN BOOLEAN MODE)
+        ORDER BY relevance DESC;
+    ELSE
+        SELECT
+            e.emp_id,
+            CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+            e.job_title,
+            d.dept_name,
+            e.status,
+            MATCH(e.first_name, e.last_name, e.job_title)
+                AGAINST(p_search_term IN NATURAL LANGUAGE MODE) AS relevance
+        FROM employee e
+        JOIN department d ON e.dept_id = d.dept_id
+        WHERE MATCH(e.first_name, e.last_name, e.job_title)
+              AGAINST(p_search_term IN NATURAL LANGUAGE MODE)
+        ORDER BY relevance DESC;
+    END IF;
+END$$
+
 DELIMITER ;
 
 
@@ -687,19 +728,19 @@ DELIMITER ;
 
 SET GLOBAL event_scheduler = ON;
 
--- MySQL 8.0.19+ no longer allows subqueries directly inside ON SCHEDULE ... STARTS,
--- so the start date is pre-computed into a session variable first.
-SET @pay_day = (SELECT config_value FROM payroll_config WHERE config_key = 'pay_day');
-SET @evt_start_date = STR_TO_DATE(
-    CONCAT(YEAR(CURDATE()), '-', LPAD(MONTH(CURDATE()), 2, '0'), '-', @pay_day),
-    '%Y-%m-%d'
-);
-
 DELIMITER $$
 
 CREATE EVENT IF NOT EXISTS evt_monthly_payroll
 ON SCHEDULE EVERY 1 MONTH
-STARTS @evt_start_date
+STARTS (
+    SELECT STR_TO_DATE(
+        CONCAT(
+            YEAR(CURDATE()), '-',
+            LPAD(MONTH(CURDATE()), 2, '0'), '-',
+            (SELECT config_value FROM payroll_config WHERE config_key = 'pay_day')
+        ), '%Y-%m-%d'
+    )
+)
 DO
 BEGIN
     DECLARE v_period_start DATE;

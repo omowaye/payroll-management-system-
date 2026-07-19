@@ -94,7 +94,7 @@ employee ────────── audit_log (app_user_id)
 | `vw_latest_payslips` | Payslips from the most recent completed run |
 | `vw_audit_trail` | Human-readable audit log with employee name resolution |
 
-### Stored Procedures (5)
+### Stored Procedures (6)
 | Procedure | Purpose |
 |---|---|
 | `sp_calculate_tax` | Progressive PAYE tax calculation using cursor over `tax_bracket` |
@@ -102,6 +102,7 @@ employee ────────── audit_log (app_user_id)
 | `sp_run_payroll` | Orchestrates a full payroll run for all active employees |
 | `sp_get_payslip` | Retrieves full payslip detail for a given employee and run |
 | `sp_update_salary` | Updates employee salary with automatic audit log entry |
+| `sp_search_employees` | Free-text search over name/job title, backed by `ft_emp_name_title` |
 
 ### Triggers (7)
 | Trigger | Purpose |
@@ -177,8 +178,8 @@ payroll-system/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/omowaye/payroll-management-system-.git
-cd payroll-management-system-
+git clone https://github.com/omowaye/payroll-system.git
+cd payroll-system
 ```
 
 2. **Update passwords** in `payroll_db.sql` before running (search for `Change_Me_`):
@@ -256,6 +257,12 @@ CALL sp_update_salary(2, 780000.00, 1);  -- emp_id, new salary, app_user_id
 ### View full audit trail
 ```sql
 SELECT * FROM vw_audit_trail;
+```
+
+### Search employees by name or job title
+```sql
+CALL sp_search_employees('Engineer');       -- single word, prefix-matched
+CALL sp_search_employees('Senior Accountant');  -- phrase, natural language mode
 ```
 
 ### Check department salary costs
