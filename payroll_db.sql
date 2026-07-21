@@ -583,6 +583,11 @@ CREATE PROCEDURE sp_search_employees (
     IN p_search_term VARCHAR(100)
 )
 BEGIN
+    IF TRIM(p_search_term) = '' OR p_search_term IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Search term cannot be empty';
+    END IF;
+
     IF LOCATE(' ', TRIM(p_search_term)) = 0 THEN
         SELECT
             e.emp_id,
