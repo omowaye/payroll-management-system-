@@ -103,7 +103,7 @@ CREATE TABLE payroll_run (
     pay_period_start DATE      NOT NULL,
     pay_period_end   DATE      NOT NULL,
     payment_date     DATE      NOT NULL,
-    status           ENUM('draft','processing','completed','cancelled') DEFAULT 'draft',
+    status           ENUM('draft','processing','completed','cancelled','failed') DEFAULT 'draft',
     created_by       INT       DEFAULT NULL,
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_period       CHECK (pay_period_end >= pay_period_start),
@@ -493,6 +493,17 @@ BEGIN
     DECLARE emp_cur CURSOR FOR
         SELECT emp_id FROM employee WHERE status = 'active';
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    -- If any employee's payslip generation throws an unhandled error
+    -- (e.g. the SIGNAL in sp_generate_payslip), mark this run as 'failed'
+    -- instead of leaving it silently stuck at 'processing' forever, then
+    -- re-signal so the caller still sees the original error.
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        CLOSE emp_cur;
+        UPDATE payroll_run SET status = 'failed' WHERE run_id = v_run_id;
+        RESIGNAL;
+    END;
 
     INSERT INTO payroll_run
         (pay_period_start, pay_period_end, payment_date, status, created_by)
