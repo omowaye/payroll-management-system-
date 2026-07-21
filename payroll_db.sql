@@ -547,21 +547,17 @@ CREATE PROCEDURE sp_update_salary (
     IN p_app_user   INT
 )
 BEGIN
-    DECLARE v_old_salary DECIMAL(12,2);
-
-    SELECT base_salary INTO v_old_salary
-    FROM employee WHERE emp_id = p_emp_id;
+    -- Stash the initiating app user in a session variable so
+    -- trg_employee_after_update can attribute the audit entry correctly.
+    -- The trigger is the single source of truth for employee-change
+    -- auditing (salary, status, job_title, dept_id) — this procedure no
+    -- longer writes its own audit_log row to avoid a duplicate,
+    -- inconsistent entry alongside the trigger's.
+    SET @current_app_user = p_app_user;
 
     UPDATE employee SET base_salary = p_new_salary WHERE emp_id = p_emp_id;
 
-    INSERT INTO audit_log
-        (table_name, record_id, action, old_value, new_value, db_user, app_user_id)
-    VALUES (
-        'employee', p_emp_id, 'UPDATE',
-        JSON_OBJECT('base_salary', v_old_salary),
-        JSON_OBJECT('base_salary', p_new_salary),
-        USER(), p_app_user
-    );
+    SET @current_app_user = NULL;
 END$$
 
 -- 5.6 Free-text employee search (name and/or job title)
@@ -626,7 +622,7 @@ BEGIN
     OR OLD.dept_id     <> NEW.dept_id
     THEN
         INSERT INTO audit_log
-            (table_name, record_id, action, old_value, new_value, db_user)
+            (table_name, record_id, action, old_value, new_value, db_user, app_user_id)
         VALUES (
             'employee', OLD.emp_id, 'UPDATE',
             JSON_OBJECT(
@@ -635,7 +631,8 @@ BEGIN
             JSON_OBJECT(
                 'base_salary', NEW.base_salary, 'status', NEW.status,
                 'job_title',   NEW.job_title,   'dept_id', NEW.dept_id),
-            USER()
+            USER(),
+            @current_app_user
         );
     END IF;
 END$$
