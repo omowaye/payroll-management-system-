@@ -456,6 +456,11 @@ BEGIN
     SET v_monthly_tax = ROUND(v_annual_tax / 12, 2);
     SET v_net         = v_gross - v_deductions - v_monthly_tax;
 
+    -- Stash the initiating app user in a session variable so
+    -- trg_payslip_after_insert can attribute the audit entry correctly.
+    -- Triggers cannot see stored-procedure local/IN variables directly.
+    SET @current_app_user = p_app_user;
+
     INSERT INTO payslip
         (run_id, emp_id, gross_pay, total_allowances, total_deductions, tax_amount, net_pay)
     VALUES
@@ -467,6 +472,10 @@ BEGIN
         tax_amount       = v_monthly_tax,
         net_pay          = v_net,
         generated_at     = CURRENT_TIMESTAMP;
+
+    -- Clear the session variable immediately after use so it can never
+    -- leak into an unrelated payslip INSERT elsewhere in the session.
+    SET @current_app_user = NULL;
 END$$
 
 -- 5.3 Run full payroll for all active employees
@@ -652,7 +661,7 @@ CREATE TRIGGER trg_payslip_after_insert
 AFTER INSERT ON payslip FOR EACH ROW
 BEGIN
     INSERT INTO audit_log
-        (table_name, record_id, action, new_value, db_user)
+        (table_name, record_id, action, new_value, db_user, app_user_id)
     VALUES (
         'payslip', NEW.payslip_id, 'INSERT',
         JSON_OBJECT(
@@ -663,7 +672,8 @@ BEGIN
             'total_deductions', NEW.total_deductions,
             'tax_amount',       NEW.tax_amount,
             'net_pay',          NEW.net_pay),
-        USER()
+        USER(),
+        @current_app_user
     );
 END$$
 
