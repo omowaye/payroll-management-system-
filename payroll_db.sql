@@ -658,14 +658,15 @@ CREATE TRIGGER trg_employee_after_delete
 AFTER DELETE ON employee FOR EACH ROW
 BEGIN
     INSERT INTO audit_log
-        (table_name, record_id, action, old_value, db_user)
+        (table_name, record_id, action, old_value, db_user, app_user_id)
     VALUES (
         'employee', OLD.emp_id, 'DELETE',
         JSON_OBJECT(
             'first_name', OLD.first_name, 'last_name',   OLD.last_name,
             'email',      OLD.email,      'base_salary', OLD.base_salary,
             'status',     OLD.status),
-        USER()
+        USER(),
+        @current_app_user
     );
 END$$
 
