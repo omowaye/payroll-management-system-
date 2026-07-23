@@ -718,13 +718,14 @@ CREATE TRIGGER trg_allowance_after_insert
 AFTER INSERT ON allowance FOR EACH ROW
 BEGIN
     INSERT INTO audit_log
-        (table_name, record_id, action, new_value, db_user)
+        (table_name, record_id, action, new_value, db_user, app_user_id)
     VALUES (
         'allowance', NEW.allowance_id, 'INSERT',
         JSON_OBJECT(
             'emp_id', NEW.emp_id, 'allowance_type', NEW.allowance_type,
             'amount', NEW.amount),
-        USER()
+        USER(),
+        @current_app_user
     );
 END$$
 
@@ -733,13 +734,14 @@ CREATE TRIGGER trg_deduction_after_insert
 AFTER INSERT ON deduction FOR EACH ROW
 BEGIN
     INSERT INTO audit_log
-        (table_name, record_id, action, new_value, db_user)
+        (table_name, record_id, action, new_value, db_user, app_user_id)
     VALUES (
         'deduction', NEW.deduction_id, 'INSERT',
         JSON_OBJECT(
             'emp_id', NEW.emp_id, 'deduction_type', NEW.deduction_type,
             'amount', NEW.amount),
-        USER()
+        USER(),
+        @current_app_user
     );
 END$$
 
