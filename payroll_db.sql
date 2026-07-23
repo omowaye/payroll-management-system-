@@ -754,18 +754,22 @@ DELIMITER ;
 
 SET GLOBAL event_scheduler = ON;
 
+-- MySQL/MariaDB do not allow subqueries inside a CREATE EVENT's
+-- ON SCHEDULE/STARTS clause. Compute the configured pay_day into a
+-- session variable first (a plain SET, not restricted), then reference
+-- that variable directly in STARTS as a scalar expression.
+SET @evt_pay_day = (SELECT config_value FROM payroll_config WHERE config_key = 'pay_day');
+
 DELIMITER $$
 
 CREATE EVENT IF NOT EXISTS evt_monthly_payroll
 ON SCHEDULE EVERY 1 MONTH
-STARTS (
-    SELECT STR_TO_DATE(
-        CONCAT(
-            YEAR(CURDATE()), '-',
-            LPAD(MONTH(CURDATE()), 2, '0'), '-',
-            (SELECT config_value FROM payroll_config WHERE config_key = 'pay_day')
-        ), '%Y-%m-%d'
-    )
+STARTS STR_TO_DATE(
+    CONCAT(
+        YEAR(CURDATE()), '-',
+        LPAD(MONTH(CURDATE()), 2, '0'), '-',
+        @evt_pay_day
+    ), '%Y-%m-%d'
 )
 DO
 BEGIN
