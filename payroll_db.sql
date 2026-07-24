@@ -107,7 +107,7 @@ CREATE TABLE payroll_run (
     created_by       INT       DEFAULT NULL,
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_period       CHECK (pay_period_end >= pay_period_start),
-    CONSTRAINT chk_payment_date CHECK (payment_date >= pay_period_end),
+    CONSTRAINT chk_payment_date CHECK (payment_date >= pay_period_start),
     CONSTRAINT uq_pay_period    UNIQUE (pay_period_start, pay_period_end),
     CONSTRAINT fk_run_creator   FOREIGN KEY (created_by)
         REFERENCES employee(emp_id)
@@ -486,9 +486,10 @@ CREATE PROCEDURE sp_run_payroll (
     IN p_created_by   INT
 )
 BEGIN
-    DECLARE v_run_id INT;
-    DECLARE v_emp_id INT;
-    DECLARE done     INT DEFAULT 0;
+    DECLARE v_run_id       INT;
+    DECLARE v_emp_id       INT;
+    DECLARE done           INT DEFAULT 0;
+    DECLARE v_cursor_open  INT DEFAULT 0;
 
     DECLARE emp_cur CURSOR FOR
         SELECT emp_id FROM employee WHERE status = 'active';
@@ -497,10 +498,16 @@ BEGIN
     -- If any employee's payslip generation throws an unhandled error
     -- (e.g. the SIGNAL in sp_generate_payslip), mark this run as 'failed'
     -- instead of leaving it silently stuck at 'processing' forever, then
-    -- re-signal so the caller still sees the original error.
+    -- re-signal so the caller still sees the original error. Guard the
+    -- CLOSE with v_cursor_open since an error can occur before OPEN
+    -- emp_cur ever runs (e.g. a CHECK constraint failure on the initial
+    -- INSERT) — closing a cursor that was never opened throws its own
+    -- error and masks the real one.
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
-        CLOSE emp_cur;
+        IF v_cursor_open THEN
+            CLOSE emp_cur;
+        END IF;
         UPDATE payroll_run SET status = 'failed' WHERE run_id = v_run_id;
         RESIGNAL;
     END;
@@ -513,6 +520,7 @@ BEGIN
     SET v_run_id = LAST_INSERT_ID();
 
     OPEN emp_cur;
+    SET v_cursor_open = 1;
     emp_loop: LOOP
         FETCH emp_cur INTO v_emp_id;
         IF done THEN LEAVE emp_loop; END IF;
